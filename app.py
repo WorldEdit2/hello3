@@ -1,11 +1,8 @@
 from flask import Flask, render_template_string, request
+import sqlite3
 import os
-import psycopg2
 
 app = Flask(__name__)
-
-# Veritabanı URL'sini ortam değişkeninden alıyoruz
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 HTML = """
 <!doctype html>
@@ -24,7 +21,7 @@ HTML = """
     </style>
 </head>
 <body>
-    <h1>Buluttan Selam! ☁️</h1>
+    <h1>Buluttan Selam! (SQLite) ☁️</h1>
     
     <form method="POST">
         <input type="text" name="mesaj" placeholder="Bir şeyler yaz..." required>
@@ -44,50 +41,34 @@ HTML = """
 """
 
 def get_db_connection():
-    conn = psycopg2.connect(DATABASE_URL)
+    # SQLite veritabanı dosyası oluşturur (database.db)
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    """Veritabanı tablosunu oluşturur (eğer yoksa)"""
-    if DATABASE_URL:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, content TEXT);')
-        conn.commit()
-        cur.close()
-        conn.close()
+    conn = get_db_connection()
+    conn.execute('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT)')
+    conn.commit()
+    conn.close()
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    # Eğer DATABASE_URL ayarlı değilse hata vermemesi için basit kontrol
-    if not DATABASE_URL:
-        return "Hata: DATABASE_URL ortam değişkeni bulunamadı. Lütfen veritabanı bağlantısını ekleyin."
-
     conn = get_db_connection()
-    cur = conn.cursor()
 
     if request.method == 'POST':
         yeni_mesaj = request.form['mesaj']
-        cur.execute('INSERT INTO messages (content) VALUES (%s)', (yeni_mesaj,))
+        conn.execute('INSERT INTO messages (content) VALUES (?)', (yeni_mesaj,))
         conn.commit()
 
-    # Mesajları çek
-    cur.execute('SELECT content FROM messages ORDER BY id DESC')
-    mesajlar = cur.fetchall()
-    
-    cur.close()
+    mesajlar = conn.execute('SELECT content FROM messages ORDER BY id DESC').fetchall()
     conn.close()
 
-    # Veritabanından gelen veriyi liste (array) formatına çevirip HTML'e gönderiyoruz
-    temiz_liste = [mesaj[0] for mesaj in mesajlar]
+    # Veriyi listeye çevir
+    temiz_liste = [mesaj['content'] for mesaj in mesajlar]
     
     return render_template_string(HTML, items=temiz_liste)
 
 if __name__ == '__main__':
-    # Uygulama başlarken tabloyu oluşturmayı dene
-    try:
-        init_db()
-    except Exception as e:
-        print(f"Veritabanı başlatma hatası: {e}")
-        
+    init_db()
     app.run(debug=True, host='0.0.0.0', port=5000)
